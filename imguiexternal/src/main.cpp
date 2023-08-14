@@ -6,17 +6,25 @@
 #include <dwmapi.h>
 #include <d3d11.h>
 #include <thread>
+#include <filesystem>
+#include <fstream>
 
 using namespace std;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-LONG TrailLength = 70;
+filesystem::path filePath = "C:\\_Rage\\_DBGCURSOR.xor";
+
+LONG TrailLength = 50;
+double TrailDecay = 0.99;
 
 POINT TrailPoint[3000] = {};
 ImColor TrailColor[3000] = {};
 float TrailSize[3000] = {};
-LONG TrailCounter = 0x0;
+POINT GradPoint[30] = {};
+ImColor GradColor[30] = {};
+float GradSize[30] = {};
+LONG TrailCounter = 0x1;
 
 HDC hdc = GetDC(NULL);
 
@@ -214,6 +222,7 @@ INT APIENTRY WinMain(HINSTANCE instance, HINSTANCE, PSTR, INT cmd_show)
 
 	bool running = true;
 
+	ofstream outfile(filePath);
 	while (running)
 	{
 		MSG msg;
@@ -249,7 +258,7 @@ INT APIENTRY WinMain(HINSTANCE instance, HINSTANCE, PSTR, INT cmd_show)
 
 		HUE += 0.5;
 
-		if (HUE == 361)
+		if (HUE > 360)
 		{
 			HUE = 0;
 		}
@@ -263,30 +272,48 @@ INT APIENTRY WinMain(HINSTANCE instance, HINSTANCE, PSTR, INT cmd_show)
 		POINT p;
 		if (GetCursorPos(&p))
 		{
-			// trail
+			if (TrailCounter == TrailLength)
+			{
+				// Shift the trail points to make space for the new point
+				for (DWORD i = 1; i < TrailLength; i++)
+				{
+					TrailPoint[i - 1] = TrailPoint[i];
+					TrailSize[i - 1] = TrailSize[i];
+					TrailColor[i - 1] = TrailColor[i];
+				}
+
+				TrailCounter = TrailLength - 1;
+			}
+
+			// Update the last trail point
 			TrailPoint[TrailCounter] = p;
 			TrailColor[TrailCounter] = { R, G, B };
 			TrailSize[TrailCounter] = 20.f;
-			if (TrailCounter == TrailLength - 1)
+
+			// Draw the trail
+			for (DWORD i = 1; i < TrailCounter; i++)
 			{
-				TrailCounter = 0;
-			}
-			else
-			{
-				TrailCounter++;
-			}
+				TrailSize[i] *= TrailDecay;
 
-			for (size_t i = 0; i < (TrailLength - 1); i++)
-			{
-				TrailSize[i] *= 0.97f;
+				ImGui::GetBackgroundDrawList()->AddLine(
+					{ (float)TrailPoint[i - 1].x, (float)TrailPoint[i - 1].y },
+					{ (float)TrailPoint[i].x, (float)TrailPoint[i].y },
+					TrailColor[i], TrailSize[i] * 2);
 
-				//ImGui::GetBackgroundDrawList()->AddLine({ (float)TrailPoint[i].x, (float)TrailPoint[i].y }, { (float)TrailPoint[i + 1].x, (float)TrailPoint[i + 1].y }, TrailColor[i], TrailSize[i] * 2);
-				ImGui::GetBackgroundDrawList()->AddCircleFilled({ (float)TrailPoint[i].x, (float)TrailPoint[i].y }, TrailSize[i], TrailColor[i]);
+				ImGui::GetBackgroundDrawList()->AddCircleFilled(
+					{ (float)TrailPoint[i].x, (float)TrailPoint[i].y },
+					TrailSize[i], TrailColor[i]);
 			}
 
+			// Draw the static circle
+			ImGui::GetBackgroundDrawList()->AddCircleFilled(
+				{ (float)p.x, (float)p.y }, 14.f, ImColor(1.f, 1.f, 1.f));
 
-			// static circle
-			ImGui::GetBackgroundDrawList()->AddCircleFilled({ (float)p.x, (float)p.y }, 14.f, ImColor(1.f, 1.f, 1.f));
+			TrailCounter++;
+		}
+		else
+		{
+			return 300;
 		}
 
 		ImGui::EndFrame();
@@ -298,10 +325,12 @@ INT APIENTRY WinMain(HINSTANCE instance, HINSTANCE, PSTR, INT cmd_show)
 
 		ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
 		
-		//this_thread::sleep_for(10ms);
+		//this_thread::sleep_for(chrono::microseconds(50));
 
 		swap_chain->Present(1U, 0U);
 	}
+
+	outfile.close();
 
 	ImGui_ImplDX11_Shutdown();
 	ImGui_ImplWin32_Shutdown();
